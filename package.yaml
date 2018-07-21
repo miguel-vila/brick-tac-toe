@@ -1,0 +1,44 @@
+name:                brick-tac-toe
+version:             0.1.0.0
+
+extra-source-files:
+- README.md
+
+dependencies:
+- base >= 4.7 && < 5
+
+library:
+  source-dirs: src
+  ghc-options:
+    - -threaded
+  dependencies:
+    - brick
+    - text
+    - microlens
+    - microlens-th
+    - vty
+    - vector
+    - safe
+    - text-zipper
+    
+executables:
+  brick-tac-toe-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - brick-tac-toe
+
+# tests:
+#   brick-tac-toe-test:
+#     main:                Spec.hs
+#     source-dirs:         test
+#     ghc-options:
+#     - -threaded
+#     - -rtsopts
+#     - -with-rtsopts=-N
+#     dependencies:
+#     - brick-tac-toe
