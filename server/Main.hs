@@ -11,8 +11,7 @@ import Data.ByteString (append)
 logAndEcho :: Socket -> IO () 
 logAndEcho sock = forever $ do
     (soc, _) <- accept sock 
-    printAndKickback soc
-    close soc
+    forever $ printAndKickback soc
     where printAndKickback conn = do
             msg <- recv conn 2500 
             print msg

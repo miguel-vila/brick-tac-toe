@@ -54,17 +54,18 @@ import Brick.Widgets.Core
 import Network.Socket hiding (recv)
 import Control.Exception (bracket)
 import qualified Network.BSD as BSD
-import Network.Socket.ByteString (recv)
+import Network.Socket.ByteString (recv, sendAll)
 import qualified Data.ByteString.Char8 as B
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad (unless)
 
-data CustomEvent = Counter 
-                 | ServerMsg String 
+data CustomEvent = ServerMsg String 
                  deriving Show
 
 data St =
     St { _stLastBrickEvent :: Maybe (BrickEvent () CustomEvent)
-       , _stCounter :: Int
        , _serverSocket :: Socket
+       , _serverMsg :: Maybe String
        }
 
 makeLenses ''St
@@ -74,22 +75,30 @@ drawUI st = [a]
     where
         a = (str $ "Last event: " <> (show $ st^.stLastBrickEvent))
             <=>
-            (str $ "Counter value is: " <> (show $ st^.stCounter))
+            (str $ "server msg" <> (show $ st^.serverMsg))
+
+sendToServer :: Socket -> String -> IO ()
+sendToServer skt str =
+    sendAll skt (B.pack str)
 
 appEvent :: St -> BrickEvent () CustomEvent -> EventM () (Next St)
 appEvent st e =
     case e of
         VtyEvent (V.EvKey V.KEsc []) -> halt st
+        VtyEvent (V.EvKey V.KEnter []) -> do
+            liftIO $ sendToServer (st^.serverSocket) "teeest"
+            continue $ st & stLastBrickEvent .~ (Just e)
         VtyEvent _ -> continue $ st & stLastBrickEvent .~ (Just e)
-        AppEvent Counter -> continue $ st & stCounter %~ (+1)
-                                          & stLastBrickEvent .~ (Just e)
+        AppEvent (ServerMsg msg) ->
+            continue $ st & serverMsg .~ (Just msg)
+                          & stLastBrickEvent .~ (Just e)
         _ -> continue st
 
 initialState :: Socket -> St
 initialState skt =
     St { _stLastBrickEvent = Nothing
-       , _stCounter = 0
        , _serverSocket = skt
+       , _serverMsg = Nothing
        }
 
 theApp :: App St CustomEvent ()
@@ -101,9 +110,10 @@ theApp =
         , appAttrMap = const $ attrMap V.defAttr []
         }
 
-cleanSocket :: Socket -> IO ()
-cleanSocket skt =
-    shutdown skt ShutdownBoth >> close skt
+closeSocket :: Socket -> IO ()
+closeSocket skt =
+--    shutdown skt ShutdownBoth >> close skt
+    pure ()
 
 createServerSocket :: IO Socket
 createServerSocket = do
@@ -121,9 +131,10 @@ brickTackToe :: IO ()
 brickTackToe = do
     chan <- newBChan 10
 
-    bracket createServerSocket cleanSocket $ \serverSkt -> do
+    bracket createServerSocket closeSocket $ \serverSkt -> do
         forkIO $ forever $ do
             msg <- recv serverSkt bufferSize
-            writeBChan chan (ServerMsg $ B.unpack msg)
+            unless (B.null msg) $ do
+                writeBChan chan (ServerMsg $ B.unpack msg)
     
         void $ customMain (V.mkVty V.defaultConfig) (Just chan) theApp (initialState serverSkt)        
