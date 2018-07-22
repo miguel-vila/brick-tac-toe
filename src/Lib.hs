@@ -8,7 +8,7 @@ module Lib
 
 import Lens.Micro.TH (makeLenses)
 import Lens.Micro ((^.), (&), (.~), (%~))
-        
+
 #if !(MIN_VERSION_base(4,11,0))
 import Data.Monoid
 #endif
@@ -51,12 +51,20 @@ import Brick.Widgets.Core
   ( (<=>)
   , str
   )
+import Network.Socket hiding (recv)
+import Control.Exception (bracket)
+import qualified Network.BSD as BSD
+import Network.Socket.ByteString (recv)
+import qualified Data.ByteString.Char8 as B
 
-data CustomEvent = Counter deriving Show
+data CustomEvent = Counter 
+                 | ServerMsg String 
+                 deriving Show
 
 data St =
     St { _stLastBrickEvent :: Maybe (BrickEvent () CustomEvent)
        , _stCounter :: Int
+       , _serverSocket :: Socket
        }
 
 makeLenses ''St
@@ -77,10 +85,11 @@ appEvent st e =
                                           & stLastBrickEvent .~ (Just e)
         _ -> continue st
 
-initialState :: St
-initialState =
+initialState :: Socket -> St
+initialState skt =
     St { _stLastBrickEvent = Nothing
        , _stCounter = 0
+       , _serverSocket = skt
        }
 
 theApp :: App St CustomEvent ()
@@ -92,12 +101,29 @@ theApp =
         , appAttrMap = const $ attrMap V.defAttr []
         }
 
+cleanSocket :: Socket -> IO ()
+cleanSocket skt =
+    shutdown skt ShutdownBoth >> close skt
+
+createServerSocket :: IO Socket
+createServerSocket = do
+    protocol <- BSD.protoNumber <$> BSD.getProtocolByName "TCP"
+    socket <- socket AF_INET Stream protocol
+    localhost <- inet_addr "127.0.0.1"
+    let sktAddr = SockAddrInet 2000 localhost
+    connect socket sktAddr
+    pure socket
+
+bufferSize :: Int
+bufferSize = 1000
+
 brickTackToe :: IO ()
 brickTackToe = do
     chan <- newBChan 10
 
-    forkIO $ forever $ do
-        writeBChan chan Counter
-        threadDelay 1000000
-
-    void $ customMain (V.mkVty V.defaultConfig) (Just chan) theApp initialState
+    bracket createServerSocket cleanSocket $ \serverSkt -> do
+        forkIO $ forever $ do
+            msg <- recv serverSkt bufferSize
+            writeBChan chan (ServerMsg $ B.unpack msg)
+    
+        void $ customMain (V.mkVty V.defaultConfig) (Just chan) theApp (initialState serverSkt)        
