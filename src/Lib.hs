@@ -22,10 +22,18 @@ import Brick.Types
 import Brick.Widgets.Core
   ( padAll
   , str
+  , withBorderStyle
+  , (<+>)
+  , hBox
+  , vBox
+  , vLimit
+  , hLimit
   )
 import qualified Brick.Widgets.Dialog as D
 import qualified Brick.Widgets.Center as C
 import qualified Brick.AttrMap as A
+import qualified Brick.Widgets.Border as B
+import qualified Brick.Widgets.Border.Style as BS
 import Brick.Util (on, bg)
 import qualified Brick.Types as T
 import Control.Monad (void, forever)
@@ -62,20 +70,36 @@ import Control.Monad (unless)
 data CustomEvent = ServerMsg String 
                  deriving Show
 
+type Position = (Int, Int)
+
 data St =
     St { _stLastBrickEvent :: Maybe (BrickEvent () CustomEvent)
        , _serverSocket :: Socket
        , _serverMsg :: Maybe String
+       , _selectedPosition :: Maybe Position
        }
 
 makeLenses ''St
 
+box s =
+    withBorderStyle BS.unicodeBold $ 
+        B.borderWithLabel (str "") $
+        vLimit 5 $
+        hLimit 5 $
+        C.hCenter $ 
+        padAll 1 $
+        str s
+
+stDebug st =
+    (box $ "Lasts event: " <> (show $ st^.stLastBrickEvent))
+    <+>
+    (box $ "server msg" <> (show $ st^.serverMsg)) 
+
+board :: Widget ()
+board = vBox $ replicate 3 $ hBox $ replicate 3 (box "")
+
 drawUI :: St -> [Widget ()]
-drawUI st = [a]
-    where
-        a = (str $ "Last event: " <> (show $ st^.stLastBrickEvent))
-            <=>
-            (str $ "server msg" <> (show $ st^.serverMsg))
+drawUI st = pure $  board
 
 sendToServer :: Socket -> String -> IO ()
 sendToServer skt str =
@@ -99,6 +123,7 @@ initialState skt =
     St { _stLastBrickEvent = Nothing
        , _serverSocket = skt
        , _serverMsg = Nothing
+       , _selectedPosition = Just (0,0)
        }
 
 theApp :: App St CustomEvent ()
@@ -134,7 +159,6 @@ brickTackToe = do
     bracket createServerSocket closeSocket $ \serverSkt -> do
         forkIO $ forever $ do
             msg <- recv serverSkt bufferSize
-            unless (B.null msg) $ do
-                writeBChan chan (ServerMsg $ B.unpack msg)
+            unless (B.null msg) $ writeBChan chan (ServerMsg $ B.unpack msg)
     
         void $ customMain (V.mkVty V.defaultConfig) (Just chan) theApp (initialState serverSkt)        
